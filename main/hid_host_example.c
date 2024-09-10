@@ -548,6 +548,11 @@ void log_free_dram(void) {
     ESP_LOGI(TAG, "Free DRAM: %d bytes", free_dram);
 }
 
+void log_free_dma(void) {
+    size_t free_dma = heap_caps_get_free_size(MALLOC_CAP_DMA);
+    ESP_LOGI(TAG, "Free DMA memory: %d bytes", free_dma);
+}
+
 // Function to log free IRAM
 void log_free_iram(void) {
     size_t free_iram = heap_caps_get_free_size(MALLOC_CAP_EXEC);
@@ -638,6 +643,28 @@ void app_main(void)
     // Log free IRAM at the end
     log_free_iram();
 
+    // Log free DRAM at the start
+    log_free_dram();
+
+    // Simulate low DMA memory conditions by allocating memory in chunks
+    size_t free_dma = heap_caps_get_free_size(MALLOC_CAP_DMA);
+    void *allocated_dma_memory;
+    while (free_dma > (1024)) {
+        allocated_dma_memory = heap_caps_malloc(1024, MALLOC_CAP_DMA);
+        if (allocated_dma_memory == NULL) {
+            ESP_LOGE(TAG, "DMA memory allocation failed");
+            break;
+        }
+
+        // Update available DMA memory after each allocation
+        free_dma = heap_caps_get_free_size(MALLOC_CAP_DMA);
+        ESP_LOGI(TAG, "Free DMA memory: %d bytes", free_dma);
+
+        vTaskDelay(10);  // Delay to avoid watchdog timeout
+    }
+
+    ESP_LOGI(TAG, "DMA memory allocation complete");
+
     ESP_LOGI(TAG, "Low memory simulation complete. Continuing with HID Host example.");
 
     // Init BOOT button: Pressing the button simulates app request to exit
@@ -685,7 +712,6 @@ void app_main(void)
 
     // Create queue
     app_event_queue = xQueueCreate(10, sizeof(app_event_queue_t));
-
 
     ESP_LOGI(TAG, "Waiting for HID Device to be connected");
 
