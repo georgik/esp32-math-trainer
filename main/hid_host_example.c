@@ -530,11 +530,115 @@ void hid_host_device_callback(hid_host_device_handle_t hid_device_handle,
     }
 }
 
+EXT_RAM_BSS_ATTR int options[65000];
+EXT_RAM_BSS_ATTR int options2[65000];
+EXT_RAM_BSS_ATTR int options3[65000];
+EXT_RAM_BSS_ATTR int options4[65000];
+EXT_RAM_BSS_ATTR int options5[65000];
+
+DRAM_ATTR static uint8_t dram1[64 * 1024];
+DRAM_ATTR static uint8_t dram2[64 * 1024];
+DRAM_ATTR static uint8_t dram3[64 * 1024];
+// DRAM_ATTR static uint8_t dram4[64 * 1024];
+// DRAM_ATTR static uint8_t dram5[64 * 1024];
+// DRAM_ATTR static uint8_t dram6[64 * 1024];
+
+void log_free_dram(void) {
+    size_t free_dram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    ESP_LOGI(TAG, "Free DRAM: %d bytes", free_dram);
+}
+
+// Function to log free IRAM
+void log_free_iram(void) {
+    size_t free_iram = heap_caps_get_free_size(MALLOC_CAP_EXEC);
+    ESP_LOGI(TAG, "Free IRAM: %d bytes", free_iram);
+}
+
 void app_main(void)
 {
     BaseType_t task_created;
     app_event_queue_t evt_queue;
     ESP_LOGI(TAG, "HID Host example");
+
+    log_free_dram();
+
+
+    log_free_dram();
+    dram1[0] = 1;
+    dram2[0] = 1;
+    dram3[0] = 1;
+    // dram4[0] = 1;
+    // dram5[0] = 1;
+    // dram6[0] = 1;
+    log_free_dram();
+
+    options[0] = 1;
+    options2[0] = 1;
+    options3[0] = 1;
+    options4[0] = 1;
+    options5[0] = 1;
+
+    // Simulate low memory conditions by allocating memory in chunks of 64KB
+    size_t free_mem = esp_get_free_heap_size();
+    void *allocated_memory;
+    while (free_mem > (256 * 1024)) {
+        allocated_memory = heap_caps_malloc(256 * 1024, MALLOC_CAP_DEFAULT);  // Allocate 64KB
+        if (allocated_memory == NULL) {
+            ESP_LOGE(TAG, "Memory allocation failed");
+            break;
+        }
+
+        // Update available memory after each allocation
+        free_mem = esp_get_free_heap_size();
+        ESP_LOGI(TAG, "Free memory: %d bytes", free_mem);
+        vTaskDelay(10); // Give space to watchdog
+    }
+
+    log_free_dram();
+    // Simulate low memory conditions by allocating memory in chunks of 64KB in DRAM
+    size_t free_dram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    void *allocated_dram_memory;
+    while (free_dram > (16 * 1024)) {  // Stop when free DRAM is less than 64KB
+        allocated_dram_memory = heap_caps_malloc(16 * 1024, MALLOC_CAP_INTERNAL);  // Allocate 64KB in DRAM
+        if (allocated_dram_memory == NULL) {
+            ESP_LOGE(TAG, "DRAM memory allocation failed");
+            break;
+        }
+
+        // Update available DRAM after each allocation
+        free_dram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+        ESP_LOGI(TAG, "Free DRAM: %d bytes", free_dram);
+        vTaskDelay(10);  // Delay to avoid watchdog timeout
+    }
+
+
+
+    // Log free IRAM at the start
+    log_free_iram();
+
+    // Simulate low memory conditions by allocating memory in chunks of 32KB in IRAM
+    size_t free_iram = heap_caps_get_free_size(MALLOC_CAP_EXEC);
+    void *allocated_iram_memory;
+    while (free_iram > (32 * 1024)) {  // Stop when free IRAM is less than 32KB
+        allocated_iram_memory = heap_caps_malloc(32 * 1024, MALLOC_CAP_EXEC);  // Allocate 32KB in IRAM
+        if (allocated_iram_memory == NULL) {
+            ESP_LOGE(TAG, "IRAM memory allocation failed");
+            break;
+        }
+
+        // Update available IRAM after each allocation
+        free_iram = heap_caps_get_free_size(MALLOC_CAP_EXEC);
+        ESP_LOGI(TAG, "Free IRAM after allocation: %d bytes", free_iram);
+
+        vTaskDelay(10);  // Delay to avoid watchdog timeout
+    }
+
+    ESP_LOGI(TAG, "IRAM allocation complete");
+
+    // Log free IRAM at the end
+    log_free_iram();
+
+    ESP_LOGI(TAG, "Low memory simulation complete. Continuing with HID Host example.");
 
     // Init BOOT button: Pressing the button simulates app request to exit
     // It will disconnect the USB device and uninstall the HID driver and USB Host Lib
@@ -555,7 +659,7 @@ void app_main(void)
     */
     task_created = xTaskCreatePinnedToCore(usb_lib_task,
                                            "usb_events",
-                                           4096,
+                                           8912,
                                            xTaskGetCurrentTaskHandle(),
                                            2, NULL, 0);
     assert(task_created == pdTRUE);
@@ -581,6 +685,7 @@ void app_main(void)
 
     // Create queue
     app_event_queue = xQueueCreate(10, sizeof(app_event_queue_t));
+
 
     ESP_LOGI(TAG, "Waiting for HID Device to be connected");
 
