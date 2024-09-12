@@ -567,6 +567,50 @@ void app_main(void)
 
     log_free_dram();
 
+    const gpio_config_t input_pin = {
+        .pin_bit_mask = BIT64(APP_QUIT_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .intr_type = GPIO_INTR_NEGEDGE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&input_pin));
+    ESP_ERROR_CHECK(gpio_install_isr_service(ESP_INTR_FLAG_LEVEL1));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(APP_QUIT_PIN, gpio_isr_cb, NULL));
+
+    /*
+    * Create usb_lib_task to:
+    * - initialize USB Host library
+    * - Handle USB Host events while APP pin in in HIGH state
+    */
+    task_created = xTaskCreatePinnedToCore(usb_lib_task,
+                                           "usb_events",
+                                           8912,
+                                           xTaskGetCurrentTaskHandle(),
+                                           2, NULL, 0);
+    assert(task_created == pdTRUE);
+
+    // Wait for notification from usb_lib_task to proceed
+    ulTaskNotifyTake(false, 1000);
+
+    /*
+    * HID host driver configuration
+    * - create background task for handling low level event inside the HID driver
+    * - provide the device callback to get new HID Device connection event
+    */
+    const hid_host_driver_config_t hid_host_driver_config = {
+        .create_background_task = true,
+        .task_priority = 5,
+        .stack_size = 4096,
+        .core_id = 0,
+        .callback = hid_host_device_callback,
+        .callback_arg = NULL
+    };
+
+    ESP_ERROR_CHECK(hid_host_install(&hid_host_driver_config));
+
+    // Create queue
+    app_event_queue = xQueueCreate(10, sizeof(app_event_queue_t));
+
 
     log_free_dram();
     dram1[0] = 1;
@@ -582,22 +626,6 @@ void app_main(void)
     options3[0] = 1;
     options4[0] = 1;
     options5[0] = 1;
-
-    // Simulate low memory conditions by allocating memory in chunks of 64KB
-    size_t free_mem = esp_get_free_heap_size();
-    void *allocated_memory;
-    while (free_mem > (256 * 1024)) {
-        allocated_memory = heap_caps_malloc(256 * 1024, MALLOC_CAP_DEFAULT);  // Allocate 64KB
-        if (allocated_memory == NULL) {
-            ESP_LOGE(TAG, "Memory allocation failed");
-            break;
-        }
-
-        // Update available memory after each allocation
-        free_mem = esp_get_free_heap_size();
-        ESP_LOGI(TAG, "Free memory: %d bytes", free_mem);
-        vTaskDelay(10); // Give space to watchdog
-    }
 
     log_free_dram();
     // Simulate low memory conditions by allocating memory in chunks of 64KB in DRAM
@@ -669,50 +697,6 @@ void app_main(void)
 
     // Init BOOT button: Pressing the button simulates app request to exit
     // It will disconnect the USB device and uninstall the HID driver and USB Host Lib
-    const gpio_config_t input_pin = {
-        .pin_bit_mask = BIT64(APP_QUIT_PIN),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .intr_type = GPIO_INTR_NEGEDGE,
-    };
-    ESP_ERROR_CHECK(gpio_config(&input_pin));
-    ESP_ERROR_CHECK(gpio_install_isr_service(ESP_INTR_FLAG_LEVEL1));
-    ESP_ERROR_CHECK(gpio_isr_handler_add(APP_QUIT_PIN, gpio_isr_cb, NULL));
-
-    /*
-    * Create usb_lib_task to:
-    * - initialize USB Host library
-    * - Handle USB Host events while APP pin in in HIGH state
-    */
-    task_created = xTaskCreatePinnedToCore(usb_lib_task,
-                                           "usb_events",
-                                           8912,
-                                           xTaskGetCurrentTaskHandle(),
-                                           2, NULL, 0);
-    assert(task_created == pdTRUE);
-
-    // Wait for notification from usb_lib_task to proceed
-    ulTaskNotifyTake(false, 1000);
-
-    /*
-    * HID host driver configuration
-    * - create background task for handling low level event inside the HID driver
-    * - provide the device callback to get new HID Device connection event
-    */
-    const hid_host_driver_config_t hid_host_driver_config = {
-        .create_background_task = true,
-        .task_priority = 5,
-        .stack_size = 4096,
-        .core_id = 0,
-        .callback = hid_host_device_callback,
-        .callback_arg = NULL
-    };
-
-    ESP_ERROR_CHECK(hid_host_install(&hid_host_driver_config));
-
-    // Create queue
-    app_event_queue = xQueueCreate(10, sizeof(app_event_queue_t));
-
     ESP_LOGI(TAG, "Waiting for HID Device to be connected");
 
     while (1) {
